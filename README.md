@@ -1,6 +1,6 @@
 # FraudGuard — real-time fraud detection platform
 
-FraudGuard is an end-to-end, locally runnable fraud-detection engineering demo. It covers event ingestion, event-time features, Redis serving, offline feature replay, LightGBM training, model promotion, online scoring, analyst feedback, drift checks, and operational dashboards.
+FraudGuard is an end-to-end, locally runnable fraud-detection software. It covers event ingestion, event-time features, Redis serving, offline feature replay, LightGBM training, model promotion, online scoring, analyst feedback, drift checks, and operational dashboards.
 
 > **Scope:** this is a production-minded portfolio system, not a bank-ready payment authorization service. The local SQLite inbox/case store, one Redis instance, and demo thresholds are intentionally simple. Run load tests and security/reliability reviews before treating any performance or availability number as a production guarantee.
 
