@@ -1,248 +1,182 @@
 # FraudGuard 🛡️
-### Real-Time Payment Fraud Detection System
 
-FraudGuard is a real-time payment fraud detection platform designed to identify suspicious transactions before they cause financial damage.
+FraudGuard is a locally runnable, real-time fraud detection engineering demo. It covers transaction ingestion, event-time features, Redis serving, offline feature replay, LightGBM training, model promotion, scoring, analyst feedback, drift checks, and operational dashboards.
 
-It analyzes transaction details and customer spending behaviour, uses machine learning and predefined security rules to estimate fraud risk, and recommends whether a transaction should be **approved, reviewed, or declined**.
+> **Scope:** This is a portfolio/demo system, not a bank-ready payment authorization service. The local SQLite inbox and case store, single Redis instance, and demo thresholds are intentionally simple. Do not treat unmeasured performance or availability as production guarantees.
 
-The goal is to go beyond checking individual transactions and understand whether a payment is unusual for a particular customer.
-
----
-
-## Why FraudGuard?
-
-Imagine someone usually makes payments of ₹200–₹2,000 in India.
-
-Suddenly, a payment of ₹85,000 is attempted from another country just two minutes after their previous transaction.
-
-Is it legitimate or fraudulent?
-
-FraudGuard evaluates this situation by examining transaction details, recent activity, location changes, spending patterns, and other risk indicators.
-
-Instead of relying on a single rule, it combines real-time data processing, machine learning, and explainable decisions.
-
-## How It Works
+## Architecture
 
 ```text
-       Payment Transaction
-                |
-                v
-         Event Ingestion
-              Kafka
-                |
-                v
-       Real-Time Processing
-                |
-                v
-        Feature Generation
-              Redis
-                |
-                v
-        Fraud Detection
-       ML Model + Rules
-                |
-                v
-        Risk Assessment
-                |
-       +--------+--------+
-       |        |        |
-       v        v        v
-     Approve  Review   Decline
-                |
-                v
-       Analyst Dashboard
-                |
-                v
-       Feedback & Retraining
+Online transaction simulator
+        |
+        v
+Redpanda / Kafka (online event contract; no is_fraud label)
+        |
+        v
+Kafka consumer -> durable SQLite inbox -> Redis feature worker
+                                           |
+                                           v
+                                  shared event-time features
+
+Offline labelled simulator -> shared feature function -> Parquet -> model training
+
+FastAPI scoring API -> approve / review / decline -> SQLite analyst queue
+        |                                                |
+        +-> Prometheus metrics                           +-> analyst labels
+        +-> rules-only fallback                          +-> label export
+
+React analyst console -> FastAPI /cases
+Prometheus -> Grafana
 ```
 
-### Main Components
+## Technology
 
-| Component | Purpose |
+- Python 3.12+, Pydantic, and FastAPI
+- Redpanda (Kafka protocol) and `confluent-kafka`
+- Redis sorted sets and Lua for atomic event-time history reads and idempotency
+- Parquet, DuckDB, LightGBM, and scikit-learn
+- SQLite WAL for the durable inbox and analyst cases
+- React, TypeScript, and Vite
+- Prometheus and Grafana
+
+## Run the full stack on Windows
+
+Install Docker Desktop with Docker Compose, Git, and [uv](https://docs.astral.sh/uv/). Run these commands in PowerShell from the folder where you want the repository:
+
+```powershell
+git clone https://github.com/Senior19/FraudGuard.git
+Set-Location FraudGuard
+uv sync --all-extras
+Copy-Item .env.example .env
+docker compose -f infra/docker-compose.yml up --build -d
+docker compose -f infra/docker-compose.yml ps
+```
+
+`uv sync --all-extras` installs the Python project and its development, streaming, and ML dependencies. It is needed for local CLI tools and tests; the Docker services also install their own runtime dependencies.
+
+Open the services:
+
+| Service | URL |
 |---|---|
-| Kafka | Receives and distributes transaction events. |
-| Redis | Stores recent customer activity for fast feature retrieval. |
-| Feature Engineering | Calculates spending patterns and behavioural indicators. |
-| Machine Learning | Estimates the probability that a transaction is fraudulent. |
-| Rules Engine | Applies additional fraud detection rules. |
-| FastAPI | Provides the fraud detection API. |
-| Analyst Dashboard | Allows analysts to inspect suspicious transactions. |
-| Monitoring | Tracks system performance, latency, and model behaviour. |
+| Analyst console | http://localhost:5173 |
+| Scoring API | http://localhost:8000 |
+| API documentation | http://localhost:8000/docs |
+| Health | http://localhost:8000/health |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
 
-## Key Features
+Grafana's default local credentials are `admin` / `admin`; change them before using this outside a local demo.
 
-- **Real-Time Detection:** Evaluates transactions as they arrive.
-- **Behavioural Analysis:** Identifies unusual spending patterns and transaction activity.
-- **Machine Learning:** Uses trained models to estimate fraud risk.
-- **Rule-Based Detection:** Combines ML predictions with configurable security rules.
-- **Risk-Based Decisions:** Classifies transactions as approved, requiring review, or declined.
-- **Explainable Predictions:** Helps analysts understand which factors influenced a prediction.
-- **Feedback Loop:** Uses analyst decisions and confirmed outcomes to support future model improvements.
-- **Performance Monitoring:** Tracks transaction throughput, response time, and model performance.
+### Put a case in the analyst queue
 
-## Technology Stack
+The console starts with an empty queue. Send a sample transaction to the scoring API; this amount exceeds the demo high-value rule, so it should be declined and create an open analyst case. In PowerShell:
 
-| Technology | Usage |
-|---|---|
-| Python | Core development and ML |
-| Apache Kafka / Redpanda | Event streaming |
-| Redis | Real-time feature storage |
-| LightGBM / XGBoost | Fraud classification |
-| FastAPI | Backend API |
-| DuckDB / Parquet | Historical data storage and analysis |
-| SHAP | Model explainability |
-| React + TypeScript | Frontend dashboard |
-| Prometheus + Grafana | Monitoring |
-| Docker | Containerization |
-| Pytest | Automated testing |
+```powershell
+$transaction = @{
+    transaction_id = "demo-$([guid]::NewGuid())"
+    card_id        = "demo-card-1"
+    merchant_id    = "demo-merchant-1"
+    device_id      = "demo-device-1"
+    amount         = "30000.00"
+    currency       = "USD"
+    country        = "US"
+    latitude       = 37.7749
+    longitude      = -122.4194
+    event_time     = (Get-Date).ToUniversalTime().ToString("o")
+} | ConvertTo-Json
 
-## Project Structure
-
-```text
-FraudGuard/
-│
-├── backend/
-│   ├── api/
-│   ├── ingestion/
-│   ├── processing/
-│   ├── features/
-│   ├── models/
-│   └── rules/
-│
-├── frontend/
-│   └── dashboard/
-│
-├── data/
-│   ├── raw/
-│   └── processed/
-│
-├── training/
-│   ├── train.py
-│   └── evaluate.py
-│
-├── monitoring/
-│
-├── tests/
-│
-├── docker-compose.yml
-├── requirements.txt
-├── .env.example
-└── README.md
+Invoke-RestMethod -Uri "http://localhost:8000/score" `
+    -Method Post -ContentType "application/json" -Body $transaction
 ```
 
-*The structure above describes the intended organization; adapt it to match the actual repository.*
+The response includes the decision and scoring mode. The open case should appear in the console, which refreshes every five seconds. The online request must not contain `is_fraud`; ground-truth labels belong only in offline data and analyst feedback.
 
-## Example
+### View logs and stop the stack
 
-Consider three incoming transactions:
+```powershell
+docker compose -f infra/docker-compose.yml logs -f api
+docker compose -f infra/docker-compose.yml down
+```
 
-| Transaction | Risk Level | Suggested Decision |
-|---|---|---|
-| Regular purchase from a familiar location | Low | Approve |
-| Unusual purchase amount | Medium | Review |
-| Large payment with suspicious location activity | High | Decline |
+The second command stops and removes the containers but preserves the Redis volume. To also remove persisted Redis data, use `docker compose -f infra/docker-compose.yml down -v`.
 
-These are illustrative examples, not measured model results. Actual decisions depend on the model, configured thresholds, and available transaction data.
+## Run the frontend locally (optional)
 
-## Dataset
+To edit the frontend with a local Vite server, first start only its API and Redis dependencies:
 
-FraudGuard can be developed and evaluated using publicly available datasets:
+```powershell
+docker compose -f infra/docker-compose.yml up -d api redis
+Set-Location frontend
+npm ci
+npm.cmd run dev -- --host 0.0.0.0
+```
 
-- [Credit Card Fraud Detection – ULB](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
-- [IEEE-CIS Fraud Detection](https://www.kaggle.com/competitions/ieee-fraud-detection)
-- [PaySim Mobile Money Dataset](https://www.kaggle.com/datasets/ealaxi/paysim1)
+Use Node.js 22 for local frontend development. The Vite app uses `http://localhost:8000` as its default API URL. Open http://localhost:5173 when Vite is ready. Stop the local Vite process with Ctrl+C.
 
-Each dataset has different characteristics, so preprocessing and feature engineering may need to be adapted.
+## Generate and publish transactions
 
-## Getting Started
+The simulator can publish online transactions to the Compose Redpanda broker. For a small local run:
 
-### Prerequisites
+```powershell
+uv run fraudguard-simulate --output kafka --count 100 --tps 10 --fraud-rate 0.02
+```
 
-Make sure you have installed:
-
-- Python 3.12+
-- Docker and Docker Compose
-- Git
-
-### 1. Clone the Repository
+Kafka events flow through the consumer, durable SQLite inbox, and Redis feature worker. To generate labelled JSONL for offline training instead, keep it out of the online Kafka path:
 
 ```bash
-git clone <https://github.com/Senior19/FraudGuard>
-cd FraudGuard
+mkdir -p data
+uv run fraudguard-simulate --output stdout --count 100000 --tps 100000 --no-throttle \
+    --fraud-rate 0.005 --seed 42 > data/simulated-transactions.jsonl
+uv run fraudguard-features --input data/simulated-transactions.jsonl --output data/features.parquet
+uv run fraudguard-train --input data/features.parquet --output-dir artifacts
 ```
 
-### 2. Create a Virtual Environment
+The simulator's offline JSONL contains labels for training. The online event contract rejects `is_fraud`.
 
-```bash
-python -m venv venv
+## Feature and scoring behavior
+
+`compute_features()` in `features/definitions.py` is the canonical feature definition used by Redis serving and offline replay. Feature windows use event time and include only events where `event_time < current.event_time`; equal timestamps are excluded deterministically. Redis event deduplication, history reads, and inserts are atomic in a Lua script.
+
+The feature set includes card velocity and amount history, distinct merchants and countries, merchant activity, and location/travel features. Redis retains a 24-hour event-time window.
+
+The scoring API can use a model when one is available. If Redis or a model is unavailable, the response exposes the rules-only mode; the configured feature-store failure policy affects the decision. The demo defaults to `FEATURE_STORE_FAILURE_POLICY=fail_closed`, which sends transactions to review unless a hard rule declines them.
+
+## Training, analyst feedback, and monitoring
+
+The training pipeline uses a chronological split and reports PR-AUC, precision at target recall, and estimated cost. Promotion compares a candidate against the current champion using validation cost and a PR-AUC guardrail. Optional ONNX export keeps the joblib model as a fallback.
+
+Analysts can label open cases as fraud or legitimate in the console. Export reviewed labels with:
+
+```powershell
+uv run fraudguard-export-labels --db data/cases.sqlite3 --output data/analyst-labels.jsonl
 ```
 
-Activate it:
+Only flagged cases routinely receive labels, which creates selection bias. The API also samples approved transactions for audit; this makes the sampling design explicit but does not eliminate all bias.
 
-**Windows**
-```bash
-venv\Scripts\activate
+Prometheus metrics are available at http://localhost:8000/metrics. Grafana is available at http://localhost:3000. The drift command compares reference and current feature Parquet files:
+
+```powershell
+uv run fraudguard-drift --reference data/features-reference.parquet `
+    --current data/features-current.parquet --output data/drift.json
 ```
 
-**Linux / macOS**
-```bash
-source venv/bin/activate
+## Development checks
+
+After `uv sync --all-extras`, run:
+
+```powershell
+uv run pytest -q
+uv run ruff check .
+uv run python -m compileall -q src tests
+npm.cmd --prefix frontend run build
 ```
 
-### 3. Install Dependencies
+The real Redis integration test requires `FRAUDGUARD_TEST_REDIS_URL`. Broker integration, real Redis behavior, ONNX conversion, browser integration, and sustained throughput are not verified by these commands; run the corresponding services or tests separately when needed.
 
-```bash
-pip install -r requirements.txt
-```
+## Limitations
 
-### 4. Configure Environment Variables
-
-Copy `.env.example` to `.env` and configure the required settings.
-
-### 5. Start the Infrastructure
-
-```bash
-docker compose up -d
-```
-
-### 6. Run the Application
-
-Follow the backend and frontend startup instructions in their respective directories.
-
-*These commands assume the corresponding configuration and application entry points are present in the repository.*
-
-## Model Evaluation
-
-Fraud detection is an imbalanced classification problem: legitimate transactions greatly outnumber fraudulent ones.
-
-Therefore, accuracy alone is not enough to evaluate the model.
-
-FraudGuard should be evaluated using:
-
-- **Precision:** How many transactions flagged as fraud were actually fraudulent?
-- **Recall:** How many actual fraudulent transactions were successfully detected?
-- **PR-AUC:** How effectively does the model distinguish fraud from legitimate activity?
-- **F1-Score:** Balance between precision and recall.
-- **Latency:** How quickly the system processes a transaction.
-- **Throughput:** How many transactions the system can process per second.
-
-## Future Improvements
-
-- Advanced behavioural profiling
-- Real-time anomaly detection
-- Improved model explainability
-- Automated model retraining
-- Champion–challenger model deployment
-- Advanced fraud pattern detection
-- Distributed deployment and scalability
-- Better analyst investigation workflows
-
-## Project Goals
-
-FraudGuard aims to demonstrate how machine learning can be integrated into a practical, real-time software system.
-
-It focuses on more than model accuracy: the project also explores data engineering, event-driven architecture, low-latency inference, explainability, monitoring, and continuous model improvement.
-
----
-
-**Built by Ashish Jha \: with Python, Machine Learning, and Real-Time Data Engineering.**
+- The feature worker and SQLite inbox/case store are intended for a local single-worker demo, not horizontal scaling.
+- The model demo uses synthetic data. Public dataset adapters use proxy fields where source data lacks device, merchant, or geographic information.
+- Demo thresholds and costs are not universal; configure them for the business context.
+- The repository has not been benchmarked at 10k TPS or under production load. Measure actual throughput and p50/p95/p99 latency on the target machine before making performance claims.
+- Production security controls, including authentication, authorization, encryption, secret management, PII minimization, audit retention, and payment compliance, are outside the demo's scope.
