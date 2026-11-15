@@ -1,8 +1,36 @@
 # FraudGuard 🛡️
 
-FraudGuard is a locally runnable, real-time fraud detection engineering demo. It covers transaction ingestion, event-time features, Redis serving, offline feature replay, LightGBM training, model promotion, scoring, analyst feedback, drift checks, and operational dashboards.
+FraudGuard is a locally runnable, end-to-end fraud detection demo. It combines an event-time feature pipeline, model and rules-based scoring, an analyst case queue, and a React operations console.
+
+![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/UI-React-61DAFB?logo=react&logoColor=black)
+![Platforms](https://img.shields.io/badge/Apps-Windows%20%7C%20Android-555)
 
 > **Scope:** This is a portfolio/demo system, not a bank-ready payment authorization service. The local SQLite inbox and case store, single Redis instance, and demo thresholds are intentionally simple. Do not treat unmeasured performance or availability as production guarantees.
+
+## What it includes
+
+- **Streaming ingestion:** transaction simulator, Kafka-compatible Redpanda broker, durable SQLite inbox, and Redis feature worker.
+- **Point-in-time features:** shared online/offline feature definitions with deterministic event-time windows.
+- **Model lifecycle:** offline replay and Parquet datasets, LightGBM training, cost-aware thresholds, promotion guardrails, and optional ONNX export.
+- **Scoring and review:** FastAPI scoring with explicit rules-only fallback mode, analyst cases, and feedback-label export.
+- **Operations:** React console, Prometheus metrics, Grafana dashboard, and feature-drift checks.
+- **App clients:** Electron desktop wrapper for Windows and a Capacitor Android client; both connect to a separately running API.
+
+## Contents
+
+- [Architecture](#architecture)
+- [Run the full stack on Windows](#run-the-full-stack-on-windows)
+- [Run the API without Docker](#run-the-api-without-docker)
+- [Run the frontend locally](#run-the-frontend-locally-optional)
+- [Build the Windows desktop app](#build-the-windows-desktop-app)
+- [Build the Android app](#build-the-android-app)
+- [Generate and publish transactions](#generate-and-publish-transactions)
+- [Feature and scoring behavior](#feature-and-scoring-behavior)
+- [Training, analyst feedback, and monitoring](#training-analyst-feedback-and-monitoring)
+- [Development checks](#development-checks)
+- [Limitations](#limitations)
 
 ## Architecture
 
@@ -100,6 +128,16 @@ docker compose -f infra/docker-compose.yml down
 
 The second command stops and removes the containers but preserves the Redis volume. To also remove persisted Redis data, use `docker compose -f infra/docker-compose.yml down -v`.
 
+## Run the API without Docker
+
+After `uv sync --all-extras`, start the API from the repository root in its own PowerShell window:
+
+```powershell
+uv run uvicorn fraudguard.scoring.api:app --host 0.0.0.0 --port 8000
+```
+
+Without Redis and a trained model, the API reports its rules-only mode. This is enough to use the Windows app and create demo cases; the full Compose stack is needed for streaming features and the other services.
+
 ## Run the frontend locally (optional)
 
 To edit the frontend with a local Vite server, first start only its API and Redis dependencies:
@@ -112,6 +150,49 @@ npm.cmd run dev -- --host 0.0.0.0
 ```
 
 Use Node.js 22 for local frontend development. The Vite app uses `http://localhost:8000` as its default API URL. Open http://localhost:5173 when Vite is ready. Stop the local Vite process with Ctrl+C.
+
+## Build the Windows desktop app
+
+The Windows app uses the same React UI in a secure Electron window. It still connects to a separately running FraudGuard API.
+
+```powershell
+Set-Location frontend
+npm ci
+npm run electron:dev
+```
+
+To build a Windows installer:
+
+```powershell
+npm run desktop:win
+```
+
+The installer is written to `frontend/release/`. Launch FraudGuard and use **API** in the header to change the server URL if the API is not at `http://localhost:8000`.
+The installer is unsigned; Windows may show a SmartScreen warning. A signed installer requires a code-signing certificate.
+
+## Build the Android app
+
+Install Android Studio (or the Android SDK command-line tools), JDK 21, Android API 35, and Android Build Tools 35.0.0. Set the SDK and Java paths in PowerShell, replacing the JDK path with your installation:
+
+```powershell
+$env:JAVA_HOME = "C:\path\to\jdk-21"
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend run android:apk
+```
+
+The SDK must include `platform-tools`, `platforms;android-35`, and `build-tools;35.0.0`.
+
+The APK is written to `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. To open the Android project in Android Studio:
+
+```powershell
+npm.cmd --prefix frontend run android:open
+```
+
+This is a debug APK, not a Play Store release. Publishing requires a release build and signing configuration.
+
+On first launch, Android asks for the API base URL. Use the Windows PC's local network address, for example `http://192.168.1.25:8000`, not `localhost`; the phone's `localhost` refers to the phone itself. The phone and PC must be on the same network, the API must be reachable through the Windows firewall, and the API's `CORS_ORIGINS` must allow the app origin. If you already have a `.env` file, make sure `CORS_ORIGINS` includes `http://localhost` and `https://localhost`. This demo permits HTTP for local-network development; use HTTPS and appropriate server security for deployment.
 
 ## Generate and publish transactions
 
@@ -180,3 +261,4 @@ The real Redis integration test requires `FRAUDGUARD_TEST_REDIS_URL`. Broker int
 - Demo thresholds and costs are not universal; configure them for the business context.
 - The repository has not been benchmarked at 10k TPS or under production load. Measure actual throughput and p50/p95/p99 latency on the target machine before making performance claims.
 - Production security controls, including authentication, authorization, encryption, secret management, PII minimization, audit retention, and payment compliance, are outside the demo's scope.
+
