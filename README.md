@@ -97,7 +97,7 @@ Grafana's default local credentials are `admin` / `admin`; change them before us
 
 ### Put a case in the analyst queue
 
-The console starts with an empty queue. Send a sample transaction to the scoring API; this amount exceeds the demo high-value rule, so it should be declined and create an open analyst case. In PowerShell:
+The console starts with an empty queue.Send a sample transaction to the scoring API; this amount exceeds the demo high-value rule, so it should be declined and create an open analyst case. In PowerShell:
 
 ```powershell
 $transaction = @{
