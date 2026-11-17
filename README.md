@@ -1,6 +1,6 @@
 # FraudGuard 🛡️
 
-FraudGuard is a locally runnable, end-to-end fraud detection demo. It combines an event-time feature pipeline, model and rules-based scoring, an analyst case queue, and a React operations console.
+FraudGuard is a locally runnable, end-to-end fraud detection application. It combines an event-time feature pipeline, model and rules-based scoring, an analyst case queue, and a React operations console.
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
